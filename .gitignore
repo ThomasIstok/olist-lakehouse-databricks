@@ -216,3 +216,17 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# --- projekt: data & secrets ---
+data/
+*.csv
+*.zip
+*.parquet
+kaggle.json
+profiles.yml
+.databricks/
+
+# --- dbt ---
+dbt/target/
+dbt/dbt_packages/
+dbt/logs/
