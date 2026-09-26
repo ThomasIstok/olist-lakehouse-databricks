@@ -53,12 +53,13 @@ def add_metadata(df: DataFrame, batch_id: str) -> DataFrame:
 
     Returns:
         The same DataFrame with columns:
-        _ingested_at, _source_file, _source_file_modified_at, _batch_id.
+        _ingested_at, _source_file, _source_file_name, _source_file_modified_at, _batch_id.
     """
     return (
         df.withColumn("_ingested_at", F.current_timestamp())
         # _metadata is a hidden column provided by Spark for file-based sources
         .withColumn("_source_file", F.col("_metadata.file_path"))
+        .withColumn("_source_file_name", F.col("_metadata.file_name"))
         .withColumn("_source_file_modified_at", F.col("_metadata.file_modification_time"))
         .withColumn("_batch_id", F.lit(batch_id))
     )
