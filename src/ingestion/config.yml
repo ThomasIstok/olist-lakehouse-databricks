@@ -22,4 +22,14 @@ tables:
   - order_reviews
   - products
   - sellers
+
   - category_translation
+
+  # REST API source: daily FX rates from Frankfurter (European Central Bank data)
+fx:
+  base_url: https://api.frankfurter.app
+  base_currency: BRL                  # Olist prices are in Brazilian real
+  quote_currencies: [EUR, CZK, USD]   # new currency = add it here, no schema change (long format)
+  start_date: "2016-09-01"            # first month of Olist orders
+  end_date: "2018-10-31"              # last month of Olist orders; "today" for live daily runs
+  target_table: frankfurter_rates
