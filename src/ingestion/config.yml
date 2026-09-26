@@ -1,0 +1,25 @@
+# Ingestion config for file-based sources (landing volume -> bronze Delta tables).
+# {catalog} is replaced at runtime -> the same config works for dev and prod.
+
+source_system: olist
+landing_path: /Volumes/{catalog}/landing/raw/olist
+checkpoint_path: /Volumes/{catalog}/bronze/checkpoints/olist
+target_schema: bronze
+table_prefix: olist_
+
+# Olist reviews contain line breaks inside quoted text -> multiLine + escape are required
+csv_options:
+  header: "true"
+  multiLine: "true"
+  escape: '"'
+
+tables:
+  - customers
+  - geolocation
+  - orders
+  - order_items
+  - order_payments
+  - order_reviews
+  - products
+  - sellers
+  - category_translation
