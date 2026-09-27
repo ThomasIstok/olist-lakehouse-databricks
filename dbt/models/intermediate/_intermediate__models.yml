@@ -1,0 +1,11 @@
+version: 2
+
+models:
+  - name: int_geolocation__zip_prefix
+    description: One representative coordinate per zip prefix (average of points within Brazil).
+    columns:
+      - name: zip_code_prefix
+        description: First 5 digits of the zip code; unique here, safe to join 1:1.
+        data_tests:
+          - unique
+          - not_null

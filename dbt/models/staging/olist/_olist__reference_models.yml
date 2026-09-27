@@ -1,0 +1,99 @@
+version: 2
+
+# Reference (master) data models for Olist
+models:
+  - name: stg_olist__customers
+    description: >
+      One row per customer_id. customer_id is created per order (1:1 with orders);
+      customer_unique_id identifies the real person - use it for repeat-customer analysis.
+    columns:
+      - name: customer_id
+        description: Per-order customer key; joins to stg_olist__orders.customer_id.
+        data_tests:
+          - unique
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('stg_olist__orders')
+                field: customer_id
+      - name: customer_unique_id
+        description: Real customer (person); one person can have several customer_ids.
+        data_tests:
+          - not_null
+      - name: customer_zip_code_prefix
+        description: First 5 digits of the zip code, leading zeros restored.
+        data_tests:
+          - not_null
+      - name: customer_city
+        description: City, lowercase, without diacritics (as in source).
+      - name: customer_state
+        description: Brazilian state code (2 letters).
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: [AC, AL, AP, AM, BA, CE, DF, ES, GO, MA, MT, MS, MG, PA, PB, PR, PE, PI, RJ, RN, RS, RO, RR, SC, SP, SE, TO]
+
+  - name: stg_olist__sellers
+    description: One row per seller with location.
+    columns:
+      - name: seller_id
+        description: Primary key of the seller.
+        data_tests:
+          - unique
+          - not_null
+      - name: seller_zip_code_prefix
+        description: First 5 digits of the zip code, leading zeros restored.
+        data_tests:
+          - not_null
+      - name: seller_city
+        description: City, lowercase, without diacritics (as in source).
+      - name: seller_state
+        description: Brazilian state code (2 letters).
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: [AC, AL, AP, AM, BA, CE, DF, ES, GO, MA, MT, MS, MG, PA, PB, PR, PE, PI, RJ, RN, RS, RO, RR, SC, SP, SE, TO]
+
+  - name: stg_olist__products
+    description: >
+      One row per product. Names are anonymised in the source (only lengths available).
+      Source typo "lenght" fixed to "length".
+    columns:
+      - name: product_id
+        description: Primary key of the product.
+        data_tests:
+          - unique
+          - not_null
+      - name: product_category_name
+        description: Category in Portuguese; NULL for products without category.
+      - name: product_weight_g
+        description: Weight in grams.
+        data_tests:
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 0
+
+  - name: stg_olist__category_translation
+    description: Portuguese -> English product category names.
+    columns:
+      - name: product_category_name
+        description: Category in Portuguese (natural key).
+        data_tests:
+          - unique
+          - not_null
+      - name: product_category_name_en
+        description: Category in English.
+        data_tests:
+          - not_null
+
+  - name: stg_olist__geolocation
+    description: >
+      Distinct coordinates per zip prefix (exact duplicates removed).
+      Many rows per prefix - do NOT join directly; use int_geolocation__zip_prefix.
+    columns:
+      - name: zip_code_prefix
+        description: First 5 digits of the zip code, leading zeros restored.
+        data_tests:
+          - not_null
+      - name: is_within_brazil
+        description: False for points outside Brazil's bounding box (source errors).
