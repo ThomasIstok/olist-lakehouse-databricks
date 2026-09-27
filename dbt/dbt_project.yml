@@ -1,0 +1,12 @@
+# dbt project: bronze -> silver (staging/intermediate) -> gold -> report-level marts
+name: olist_lakehouse
+version: "1.0.0"
+config-version: 2
+profile: olist_lakehouse   # must match the name in ~/.dbt/profiles.yml
+
+model-paths: ["models"]
+macro-paths: ["macros"]
+test-paths: ["tests"]
+seed-paths: ["seeds"]
+snapshot-paths: ["snapshots"]
+clean-targets: ["target", "dbt_packages"]

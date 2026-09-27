@@ -1,0 +1,4 @@
+# Community macros: surrogate keys, date spine, extra tests
+packages:
+  - package: dbt-labs/dbt_utils
+    version: [">=1.3.0", "<2.0.0"]
