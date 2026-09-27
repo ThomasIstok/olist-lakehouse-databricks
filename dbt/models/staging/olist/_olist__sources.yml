@@ -1,0 +1,28 @@
+version: 2
+
+# Bronze tables loaded by Auto Loader (notebooks/01_ingest_files).
+# All columns are strings; typing happens in staging models.
+# Catalog is not set -> dbt uses the target catalog (olist_dev / olist_prod).
+sources:
+  - name: olist
+    description: Olist Brazilian e-commerce data (Kaggle), delivered as monthly/reference CSV files.
+    schema: bronze
+    tables:
+      - name: olist_orders
+        description: One row per order (purchase, approval and delivery timestamps).
+      - name: olist_order_items
+        description: One row per item within an order (price, freight, seller).
+      - name: olist_order_payments
+        description: One row per payment of an order (an order can be paid in several parts).
+      - name: olist_order_reviews
+        description: Customer reviews of orders (score 1-5, optional comment).
+      - name: olist_customers
+        description: Customers with location (zip prefix, city, state).
+      - name: olist_sellers
+        description: Sellers with location.
+      - name: olist_products
+        description: Product catalogue (category in Portuguese, dimensions, weight).
+      - name: olist_category_translation
+        description: Portuguese -> English product category names.
+      - name: olist_geolocation
+        description: Zip code prefix -> latitude / longitude (many rows per prefix).

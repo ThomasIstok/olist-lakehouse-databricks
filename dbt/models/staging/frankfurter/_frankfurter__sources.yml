@@ -1,0 +1,10 @@
+version: 2
+
+# Bronze table loaded by the Frankfurter API ingestion (notebooks/02_ingest_fx).
+sources:
+  - name: frankfurter
+    description: Daily FX rates published by the European Central Bank via the Frankfurter API.
+    schema: bronze
+    tables:
+      - name: frankfurter_rates
+        description: One row per business day and currency pair (long format).
