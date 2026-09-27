@@ -1,0 +1,33 @@
+version: 2
+
+models:
+  - name: int_geolocation__zip_prefix
+    description: One representative coordinate per zip prefix (average of points within Brazil).
+    columns:
+      - name: zip_code_prefix
+        description: First 5 digits of the zip code; unique here, safe to join 1:1.
+        data_tests:
+          - unique
+          - not_null
+
+  - name: int_fx_rates__daily
+    description: >
+      FX rate for every calendar day. Weekends/holidays carry the last published rate
+      (forward fill, no look-ahead). Join orders on calendar_date = order date.
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns: [calendar_date, base_currency, quote_currency]
+    columns:
+      - name: calendar_date
+        description: Every calendar day between the first and last published rate.
+        data_tests:
+          - not_null
+      - name: fx_rate
+        description: Published rate, or the last published rate for weekends/holidays.
+        data_tests:
+          - not_null
+      - name: rate_published_date
+        description: ECB business day the rate was actually published for.
+      - name: is_filled
+        description: True if the day had no published rate (weekend/holiday) and was forward-filled.

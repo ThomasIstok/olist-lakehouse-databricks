@@ -1,0 +1,196 @@
+version: 2
+
+models:
+  - name: stg_olist__orders
+    description: >
+      One row per order with typed timestamps and cleaned status.
+      Timestamps are in Brazilian local time as delivered by the source (no timezone conversion).
+    columns:
+      - name: order_id
+        description: Primary key of the order.
+        data_tests:
+          - unique
+          - not_null
+      - name: customer_id
+        description: Customer key for this order (one customer_id per order in Olist).
+        data_tests:
+          - not_null
+      - name: order_status
+        description: Lifecycle status of the order, lowercase.
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: [created, approved, invoiced, processing, shipped, delivered, canceled, unavailable]
+      - name: ordered_at
+        description: When the customer placed the order.
+        data_tests:
+          - not_null
+      - name: approved_at
+        description: When the payment was approved.
+      - name: shipped_at
+        description: When the seller handed the order over to the carrier.
+      - name: delivered_at
+        description: When the order was delivered to the customer.
+        data_tests:
+          # Data quality check: warn (not fail) - source data is known to contain a few anomalies
+          - dbt_utils.expression_is_true:
+              arguments:
+                expression: ">= ordered_at"
+              config:
+                severity: warn
+      - name: estimated_delivery_date
+        description: Delivery date promised to the customer at purchase time.
+      - name: _ingested_at
+        description: When the row was ingested into bronze.
+      - name: _source_file_name
+        description: Landing file the row came from, e.g. orders_2018_01.csv.
+      - name: _batch_id
+        description: Ingestion run that loaded the row.
+
+  - name: stg_olist__order_items
+    description: >
+      One row per unit sold (no quantity column in the source: 3 pieces = 3 rows).
+      Prices are in Brazilian real (BRL).
+    data_tests:
+      # Composite primary key: order + position of the item within the order
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns: [order_id, order_item_number]
+    columns:
+      - name: order_id
+        description: Order the item belongs to.
+        data_tests:
+          - not_null
+          # Every item must belong to an existing order (referential integrity)
+          - relationships:
+              arguments:
+                to: ref('stg_olist__orders')
+                field: order_id
+      - name: order_item_number
+        description: Position of the item within the order (1, 2, 3 ...).
+        data_tests:
+          - not_null
+      - name: product_id
+        description: Product sold.
+        data_tests:
+          - not_null
+      - name: seller_id
+        description: Seller who fulfils this item.
+        data_tests:
+          - not_null
+      - name: shipping_limit_at
+        description: Deadline for the seller to hand the item over to the carrier.
+      - name: item_price_brl
+        description: Price of one unit in BRL.
+        data_tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 0
+                inclusive: false   # price must be > 0
+      - name: freight_price_brl
+        description: Freight cost allocated to this unit in BRL (can be 0).
+        data_tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 0       # freight >= 0
+      - name: _ingested_at
+        description: When the row was ingested into bronze.
+      - name: _source_file_name
+        description: Landing file the row came from.
+      - name: _batch_id
+        description: Ingestion run that loaded the row.
+
+  - name: stg_olist__order_payments
+    description: >
+      One row per payment of an order (an order can be split into several payments,
+      e.g. voucher + credit card). Amounts in BRL.
+      Relates to orders only - do not join directly to order items (fan-out).
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns: [order_id, payment_sequence]
+    columns:
+      - name: order_id
+        description: Order the payment belongs to.
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('stg_olist__orders')
+                field: order_id
+      - name: payment_sequence
+        description: Order of the payment within the order (1, 2, 3 ...).
+        data_tests:
+          - not_null
+      - name: payment_method
+        description: Payment method, lowercase.
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: [credit_card, boleto, voucher, debit_card, not_defined]
+      - name: installment_count
+        description: Number of card instalments (0 appears in source data as an anomaly).
+        data_tests:
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 0
+      - name: payment_amount_brl
+        description: Paid amount in BRL (a few zero-value payments exist in the source).
+        data_tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 0
+      - name: _ingested_at
+        description: When the row was ingested into bronze.
+      - name: _source_file_name
+        description: Landing file the row came from.
+      - name: _batch_id
+        description: Ingestion run that loaded the row.
+
+  - name: stg_olist__order_reviews
+    description: >
+      One row per review and order. The same review_id can cover several orders
+      (a customer reviewing multiple orders at once), so the key is review_id + order_id.
+      Texts are in Portuguese; empty texts are NULL.
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns: [review_id, order_id]
+    columns:
+      - name: review_id
+        description: Review identifier (not unique on its own).
+        data_tests:
+          - not_null
+      - name: order_id
+        description: Reviewed order.
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('stg_olist__orders')
+                field: order_id
+      - name: review_score
+        description: Customer satisfaction score from 1 (worst) to 5 (best).
+        data_tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 1
+                max_value: 5
+      - name: review_title
+        description: Optional review title (Portuguese), NULL if empty.
+      - name: review_message
+        description: Optional review text (Portuguese), NULL if empty.
+      - name: review_created_date
+        description: Date the satisfaction survey was sent to the customer.
+      - name: review_answered_at
+        description: When the customer answered the survey.
+      - name: _ingested_at
+        description: When the row was ingested into bronze.
+      - name: _source_file_name
+        description: Landing file the row came from.
+      - name: _batch_id
+        description: Ingestion run that loaded the row.
