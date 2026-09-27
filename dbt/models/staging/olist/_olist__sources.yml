@@ -7,7 +7,14 @@ sources:
   - name: olist
     description: Olist Brazilian e-commerce data (Kaggle), delivered as monthly/reference CSV files.
     schema: bronze
+    config:
+      # Freshness = how long since data last arrived in bronze (_ingested_at is set by ingestion)
+      loaded_at_field: _ingested_at
+      freshness:
+        warn_after: {count: 2, period: day}
+        error_after: {count: 7, period: day}
     tables:
+      # Transactional tables: arrive regularly -> freshness applies (inherited from source)
       - name: olist_orders
         description: One row per order (purchase, approval and delivery timestamps).
       - name: olist_order_items
@@ -16,13 +23,25 @@ sources:
         description: One row per payment of an order (an order can be paid in several parts).
       - name: olist_order_reviews
         description: Customer reviews of orders (score 1-5, optional comment).
+
+      # Reference tables: change rarely -> no freshness check (would warn forever and get ignored)
       - name: olist_customers
         description: Customers with location (zip prefix, city, state).
+        config:
+          freshness: null
       - name: olist_sellers
         description: Sellers with location.
+        config:
+          freshness: null
       - name: olist_products
         description: Product catalogue (category in Portuguese, dimensions, weight).
+        config:
+          freshness: null
       - name: olist_category_translation
         description: Portuguese -> English product category names.
+        config:
+          freshness: null
       - name: olist_geolocation
         description: Zip code prefix -> latitude / longitude (many rows per prefix).
+        config:
+          freshness: null
