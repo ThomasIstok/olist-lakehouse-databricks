@@ -149,3 +149,48 @@ models:
         description: Landing file the row came from.
       - name: _batch_id
         description: Ingestion run that loaded the row.
+
+  - name: stg_olist__order_reviews
+    description: >
+      One row per review and order. The same review_id can cover several orders
+      (a customer reviewing multiple orders at once), so the key is review_id + order_id.
+      Texts are in Portuguese; empty texts are NULL.
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns: [review_id, order_id]
+    columns:
+      - name: review_id
+        description: Review identifier (not unique on its own).
+        data_tests:
+          - not_null
+      - name: order_id
+        description: Reviewed order.
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('stg_olist__orders')
+                field: order_id
+      - name: review_score
+        description: Customer satisfaction score from 1 (worst) to 5 (best).
+        data_tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 1
+                max_value: 5
+      - name: review_title
+        description: Optional review title (Portuguese), NULL if empty.
+      - name: review_message
+        description: Optional review text (Portuguese), NULL if empty.
+      - name: review_created_date
+        description: Date the satisfaction survey was sent to the customer.
+      - name: review_answered_at
+        description: When the customer answered the survey.
+      - name: _ingested_at
+        description: When the row was ingested into bronze.
+      - name: _source_file_name
+        description: Landing file the row came from.
+      - name: _batch_id
+        description: Ingestion run that loaded the row.
