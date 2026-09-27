@@ -10,3 +10,16 @@ test-paths: ["tests"]
 seed-paths: ["seeds"]
 snapshot-paths: ["snapshots"]
 clean-targets: ["target", "dbt_packages"]
+
+# Where models land: folder -> schema + materialization
+models:
+  olist_lakehouse:
+    staging:              # 1:1 cleaned copies of bronze tables
+      +schema: silver
+      +materialized: view # cheap: no data copy, always reflects bronze
+    intermediate:         # joins / enrichment reused by several gold models
+      +schema: silver
+      +materialized: view
+    gold:                 # star schema, queried a lot -> store as tables
+      +schema: gold
+      +materialized: table

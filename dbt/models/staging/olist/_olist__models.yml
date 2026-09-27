@@ -1,0 +1,56 @@
+version: 2
+
+models:
+  - name: stg_olist__orders
+    description: >
+      One row per order with typed timestamps and cleaned status.
+      Timestamps are in Brazilian local time as delivered by the source (no timezone conversion).
+    columns:
+      - name: order_id
+        description: Primary key of the order.
+        data_tests:
+          - unique
+          - not_null
+
+      - name: customer_id
+        description: Customer key for this order (one customer_id per order in Olist).
+        data_tests:
+          - not_null
+
+      - name: order_status
+        description: Lifecycle status of the order, lowercase.
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: [created, approved, invoiced, processing, shipped, delivered, canceled, unavailable]
+
+      - name: ordered_at
+        description: When the customer placed the order.
+        data_tests:
+          - not_null
+
+      - name: approved_at
+        description: When the payment was approved.
+
+      - name: shipped_at
+        description: When the seller handed the order over to the carrier.
+
+      - name: delivered_at
+        description: When the order was delivered to the customer.
+        data_tests:
+          # Data quality check: warn (not fail) - source data is known to contain a few anomalies
+          - dbt_utils.expression_is_true:
+              arguments:
+                expression: ">= ordered_at"
+              config:
+                severity: warn
+
+      - name: estimated_delivery_date
+        description: Delivery date promised to the customer at purchase time.
+
+      - name: _ingested_at
+        description: When the row was ingested into bronze.
+      - name: _source_file_name
+        description: Landing file the row came from, e.g. orders_2018_01.csv.
+      - name: _batch_id
+        description: Ingestion run that loaded the row.
