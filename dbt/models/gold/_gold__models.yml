@@ -1,0 +1,89 @@
+version: 2
+
+models:
+  - name: calendar
+    description: >
+      Date dimension - one row per calendar day, full calendar years covering all orders.
+      is_in_analysis_period marks the reliable data period (vars in dbt_project.yml).
+    columns:
+      - name: calendar_date
+        description: Calendar day (primary key).
+        data_tests:
+          - unique
+          - not_null
+      - name: date_key
+        description: Integer key yyyyMMdd (e.g. 20170115) for BI tools.
+        data_tests:
+          - unique
+          - not_null
+      - name: day_of_week
+        description: ISO day of week, 1 = Monday ... 7 = Sunday.
+      - name: is_weekend
+        description: True for Saturday and Sunday.
+      - name: is_in_analysis_period
+        description: True between analysis_start_date and analysis_end_date (reliable data).
+
+  - name: customer
+    description: >
+      Customer dimension - one row per real person (source customer_unique_id).
+      The source has no customer master data: location fields are the LAST DELIVERY location,
+      not a registered address. Exact delivery address per order lives in the order fact.
+    columns:
+      - name: customer_id
+        description: Real customer (person). Source per-order key is kept in the order fact as source_customer_id.
+        data_tests:
+          - unique
+          - not_null
+      - name: last_delivery_state
+        description: State of the delivery address of the most recent order.
+      - name: order_count
+        description: Number of orders placed by the person.
+        data_tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 1
+      - name: is_repeat_customer
+        description: True if the person placed more than one order.
+      - name: delivery_zip_count
+        description: Number of distinct delivery zip prefixes used (> 1 = shipped to several places).
+
+  - name: seller
+    description: >
+      Seller dimension - one row per seller. Sellers are independent shops on the Olist marketplace;
+      the source sellers table is master data, so the location belongs to the seller.
+    columns:
+      - name: seller_id
+        description: Primary key of the seller.
+        data_tests:
+          - unique
+          - not_null
+      - name: state
+        description: Brazilian state code of the seller.
+        data_tests:
+          - not_null
+
+  - name: product
+    description: >
+      Product dimension - one row per product. Category logic lives here: missing category -> unknown,
+      missing translations fixed via seed, report groups via seed category_groups.
+      Product names are anonymised in the source; product_display_name is a derived label.
+    columns:
+      - name: product_id
+        description: Primary key of the product.
+        data_tests:
+          - unique
+          - not_null
+      - name: category_name
+        description: English category name (technical), 'unknown' if the product has no category.
+        data_tests:
+          - not_null
+      - name: category_label
+        description: Readable category name for reports (e.g. Bed Bath Table).
+      - name: category_group
+        description: Report-level group of categories (seed category_groups).
+        data_tests:
+          # Fails when a category is missing in the seed -> add it to category_groups.csv
+          - not_null
+      - name: product_display_name
+        description: Derived readable name (category + short id); source names are anonymised.

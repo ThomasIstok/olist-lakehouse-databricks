@@ -1,0 +1,25 @@
+version: 2
+
+seeds:
+  - name: category_groups
+    description: Manual mapping of product categories to report-level groups (maintained by the business).
+    columns:
+      - name: category_name
+        description: English category name (as corrected in staging).
+        data_tests:
+          # A duplicate row here would duplicate products in gold.product (fan-out)
+          - unique
+          - not_null
+      - name: category_group
+        description: Report-level group.
+        data_tests:
+          - not_null
+
+  - name: category_translation_fixes
+    description: English names for categories missing in the source translation table.
+    columns:
+      - name: product_category_name
+        description: Portuguese category name (join key).
+        data_tests:
+          - unique
+          - not_null
