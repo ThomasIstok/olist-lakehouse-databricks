@@ -220,6 +220,7 @@ __marimo__/
 # --- projekt: data & secrets ---
 data/
 *.csv
+!dbt/seeds/*.csv
 *.zip
 *.parquet
 kaggle.json

@@ -11,6 +11,11 @@ seed-paths: ["seeds"]
 snapshot-paths: ["snapshots"]
 clean-targets: ["target", "dbt_packages"]
 
+# Business parameters in one place (used by gold models)
+vars:
+  analysis_start_date: "2017-01-01"   # before: platform ramp-up, very few orders
+  analysis_end_date: "2018-08-31"     # after: incomplete export months
+
 # Where models land: folder -> schema + materialization
 models:
   olist_lakehouse:
@@ -20,6 +25,11 @@ models:
     intermediate:         # joins / enrichment reused by several gold models
       +schema: silver
       +materialized: view
-    gold:                 # star schema, queried a lot -> store as tables
+    gold:                 # single source of truth, queried a lot -> store as tables
       +schema: gold
       +materialized: table
+
+# Manually maintained reference data (CSV files in dbt/seeds)
+seeds:
+  olist_lakehouse:
+    +schema: silver
