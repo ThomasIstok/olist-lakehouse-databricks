@@ -1,0 +1,146 @@
+version: 2
+
+# Sales Overview mart: report-level views over gold.
+# Rules: dimensions = SELECT + WHERE only; facts = SELECT + WHERE (+ aggregation); no CASE, no new logic.
+# Facts are filtered to the analysis period; dim_calendar keeps full years for Power BI time intelligence.
+
+models:
+  # ---------- dimensions ----------
+  - name: dim_calendar
+    description: Calendar (full years, not filtered - required by Power BI time intelligence).
+    columns:
+      - name: calendar_date
+        description: Calendar day; facts join on order_date / calendar_date.
+        data_tests:
+          - unique
+          - not_null
+
+  - name: dim_customer
+    description: Customers (real persons). Location = last delivery location; sales by state use delivery_state on the facts.
+    columns:
+      - name: customer_id
+        description: Real customer (person).
+        data_tests:
+          - unique
+          - not_null
+
+  - name: dim_seller
+    description: Sellers (independent marketplace shops) with location for maps.
+    columns:
+      - name: seller_id
+        description: Primary key of the seller.
+        data_tests:
+          - unique
+          - not_null
+
+  - name: dim_product
+    description: Products with readable names and category levels (category_label, category_group).
+    columns:
+      - name: product_id
+        description: Primary key of the product.
+        data_tests:
+          - unique
+          - not_null
+
+  # ---------- facts ----------
+  - name: fct_order_item
+    description: >
+      Sales fact - one row per unit sold, analysis period only. Use for revenue by category,
+      seller, state and time. Revenue = items with is_revenue_eligible = true.
+      Do NOT count orders or average delivery here - use fct_sales_order.
+    columns:
+      - name: order_item_key
+        description: Unique key of the item.
+        data_tests:
+          - unique
+          - not_null
+      - name: product_id
+        description: -> dim_product.
+        data_tests:
+          - relationships:
+              arguments:
+                to: ref('dim_product')
+                field: product_id
+      - name: seller_id
+        description: -> dim_seller.
+        data_tests:
+          - relationships:
+              arguments:
+                to: ref('dim_seller')
+                field: seller_id
+      - name: customer_id
+        description: -> dim_customer.
+        data_tests:
+          - relationships:
+              arguments:
+                to: ref('dim_customer')
+                field: customer_id
+      - name: order_date
+        description: -> dim_calendar.
+        data_tests:
+          - relationships:
+              arguments:
+                to: ref('dim_calendar')
+                field: calendar_date
+      - name: is_revenue_eligible
+        description: Filter for revenue measures (canceled / unavailable orders are false).
+
+  - name: fct_sales_order
+    description: >
+      Order fact - one row per order, analysis period only. Use for order counts, average order value,
+      cancellation rate, delivery time, delay and reviews.
+    columns:
+      - name: order_id
+        description: Unique key of the order.
+        data_tests:
+          - unique
+          - not_null
+      - name: customer_id
+        description: -> dim_customer.
+        data_tests:
+          - relationships:
+              arguments:
+                to: ref('dim_customer')
+                field: customer_id
+      - name: order_date
+        description: -> dim_calendar.
+        data_tests:
+          - relationships:
+              arguments:
+                to: ref('dim_calendar')
+                field: calendar_date
+      - name: is_late
+        description: True if delivered after the estimate; NULL if not delivered.
+
+  - name: fct_payment
+    description: >
+      Payment fact - one row per payment, analysis period only. Use for payment method split
+      (credit_card, boleto = bank slip, voucher, debit_card) and instalments.
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns: [order_id, payment_sequence]
+    columns:
+      - name: customer_id
+        description: -> dim_customer.
+        data_tests:
+          - relationships:
+              arguments:
+                to: ref('dim_customer')
+                field: customer_id
+      - name: order_date
+        description: -> dim_calendar.
+        data_tests:
+          - relationships:
+              arguments:
+                to: ref('dim_calendar')
+                field: calendar_date
+
+  - name: fct_fx_rate
+    description: Daily BRL exchange rates for the analysis period (rate trend chart).
+    columns:
+      - name: calendar_date
+        description: Calendar day -> dim_calendar.
+        data_tests:
+          - unique
+          - not_null

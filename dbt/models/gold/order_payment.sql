@@ -1,8 +1,8 @@
 {#
     Payment fact. Grain: one row per payment of an order (an order can be split,
     e.g. voucher + credit card).
-    Adds the keys needed to join dimensions in BI (customer = person, order date -> calendar)
-    and converts amounts to EUR / CZK.
+    Adds the keys needed to join dimensions in BI (customer = person, order date -> calendar),
+    converts amounts to EUR / CZK and carries the analysis-period flag for marts.
     FX rule (same in every fact): rate of the ORDER DATE, so amounts across facts reconcile.
 #}
 
@@ -29,6 +29,13 @@ fx as (
 
     select * from {{ ref('fx_rate_daily') }}
 
+),
+
+-- analysis period is defined once in the calendar (vars) - reuse it, don't repeat it
+calendar as (
+
+    select calendar_date, is_in_analysis_period from {{ ref('calendar') }}
+
 )
 
 select
@@ -39,9 +46,10 @@ select
     cast(o.ordered_at as date)                                   as order_date,    -- -> gold.calendar
 
     -- attributes
-    p.payment_method,
+    p.payment_method,                                            -- credit_card, boleto (bank slip), voucher, debit_card
     p.installment_count,
     p.installment_count > 1                                      as is_installment, -- paid in instalments
+    cal.is_in_analysis_period,
 
     -- amounts: BRL as paid, converted with the order-date rate; decimal keeps exact cents
     p.payment_amount_brl,
@@ -49,6 +57,7 @@ select
     cast(p.payment_amount_brl * fx.brl_to_czk as decimal(12, 2)) as payment_amount_czk
 
 from payments p
-left join orders o    on o.order_id      = p.order_id         -- left: never silently drop a payment; tests flag missing links
-left join customers c on c.customer_id   = o.customer_id
-left join fx          on fx.calendar_date = cast(o.ordered_at as date)   -- left: never drop a payment for a missing rate
+left join orders o     on o.order_id       = p.order_id         -- left: never silently drop a payment; tests flag missing links
+left join customers c  on c.customer_id    = o.customer_id
+left join fx           on fx.calendar_date = cast(o.ordered_at as date)   -- left: never drop a payment for a missing rate
+left join calendar cal on cal.calendar_date = cast(o.ordered_at as date)
