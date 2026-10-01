@@ -1,0 +1,186 @@
+version: 2
+
+models:
+  - name: fx_rate_daily
+    description: >
+      Daily BRL exchange rates in wide format, every calendar day (weekends/holidays carry the
+      last published ECB rate). 1 BRL = brl_to_xxx units of the target currency.
+    columns:
+      - name: calendar_date
+        description: Calendar day (primary key); facts join on the order date.
+        data_tests:
+          - unique
+          - not_null
+      - name: brl_to_eur
+        description: 1 BRL in EUR.
+        data_tests:
+          - not_null
+      - name: brl_to_czk
+        description: 1 BRL in CZK.
+        data_tests:
+          - not_null
+
+  - name: order_review
+    description: >
+      Review fact - one row per review and order. Sentiment from the 1-5 score
+      (1-2 negative, 3 neutral, 4-5 positive).
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns: [review_id, order_id]
+    columns:
+      - name: review_score
+        description: Customer satisfaction score 1 (worst) to 5 (best).
+        data_tests:
+          - not_null
+      - name: review_sentiment
+        description: negative (1-2), neutral (3), positive (4-5).
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: [negative, neutral, positive]
+      - name: has_comment
+        description: True if the review has a title or a message.
+      - name: response_hours
+        description: Hours between the survey being sent and the customer answering.
+
+  - name: order_payment
+    description: >
+      Payment fact - one row per payment of an order. Amounts in BRL and converted to EUR / CZK
+      with the rate of the order date (same FX rule in every fact).
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns: [order_id, payment_sequence]
+    columns:
+      - name: customer_id
+        description: Real customer (person) -> gold.customer.
+        data_tests:
+          # loud safety net for the left join: an order without customer fails here
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('customer')
+                field: customer_id
+      - name: order_date
+        description: Order date -> gold.calendar.
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('calendar')
+                field: calendar_date
+      - name: payment_amount_eur
+        description: Paid amount in EUR (NULL would mean a missing FX rate).
+        data_tests:
+          - not_null
+
+  - name: order_item
+    description: >
+      Order item fact - one row per unit sold (no quantity column in the source).
+      Main sales fact for revenue by category, seller, region and time. Prices in BRL / EUR / CZK.
+      Order-level metrics (delivery time, AOV) must come from sales_order, not from here.
+    columns:
+      - name: order_item_key
+        description: Surrogate key of order_id + order_item_number (single-column key for BI).
+        data_tests:
+          - unique
+          - not_null
+      - name: customer_id
+        description: Real customer (person) -> gold.customer.
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('customer')
+                field: customer_id
+      - name: product_id
+        description: Product -> gold.product.
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('product')
+                field: product_id
+      - name: seller_id
+        description: Seller -> gold.seller.
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('seller')
+                field: seller_id
+      - name: order_date
+        description: Order date -> gold.calendar.
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('calendar')
+                field: calendar_date
+      - name: is_revenue_eligible
+        description: True if the item counts as revenue (macro is_revenue_eligible - single definition).
+      - name: item_price_eur
+        description: Unit price in EUR (NULL would mean a missing FX rate).
+        data_tests:
+          - not_null
+      - name: distance_km
+        description: Great-circle distance seller -> delivery location of this order (NULL if coordinates missing).
+
+  - name: sales_order
+    description: >
+      Sales order fact - one row per order (named sales_order: ORDER is a reserved SQL keyword).
+      Holds order-level metrics (delivery time, delay, AOV, reviews) and the delivery address.
+      Items, payments and reviews are pre-aggregated per order to avoid fan-out.
+    data_tests:
+      # reconciliation: paid amount should match items + freight; instalment interest causes small
+      # differences -> warn only, so we see anomalies without stopping the pipeline
+      - dbt_utils.expression_is_true:
+          arguments:
+            expression: "abs(payment_difference_brl) <= 1"
+          config:
+            severity: warn
+            where: "payment_count > 0 and item_count > 0"
+    columns:
+      - name: order_id
+        description: Primary key of the order.
+        data_tests:
+          - unique
+          - not_null
+      - name: customer_id
+        description: Real customer (person) -> gold.customer.
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('customer')
+                field: customer_id
+      - name: source_customer_id
+        description: Source per-order customer key (traceability only, do not use for customer analysis).
+      - name: order_date
+        description: Order date -> gold.calendar.
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('calendar')
+                field: calendar_date
+      - name: delivery_state
+        description: State of the delivery address of this order.
+      - name: delivery_days
+        description: Days from purchase to delivery (order-level metric - average it here).
+      - name: delay_days
+        description: Delivered date minus estimated date; > 0 late, <= 0 on time.
+      - name: is_late
+        description: True if delivered after the estimated date; NULL if not delivered (unknown, not on time).
+      - name: is_revenue_eligible
+        description: True if the order counts as revenue (macro is_revenue_eligible - single definition).
+      - name: is_in_analysis_period
+        description: Order date within the reliable data period (from calendar / project vars).
+      - name: order_value_brl
+        description: Items + freight in BRL.
+      - name: payment_difference_brl
+        description: Paid minus ordered (BRL); small differences come from instalment interest / vouchers.
+      - name: has_negative_review
+        description: True if at least one 1-2 star review; also false when there is no review (check review_count).
