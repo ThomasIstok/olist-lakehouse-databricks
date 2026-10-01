@@ -28,6 +28,10 @@ models:
     gold:                 # single source of truth, queried a lot -> store as tables
       +schema: gold
       +materialized: table
+    marts:                # report-level marts: only SELECT / WHERE (+ aggregation in facts) on gold
+      sales_overview:
+        +schema: mart_sales_overview
+        +materialized: view   # no data copy - gold stays the only place where data lives
 
 # Manually maintained reference data (CSV files in dbt/seeds)
 seeds:
