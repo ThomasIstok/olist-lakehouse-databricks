@@ -15,6 +15,13 @@ models:
         description: Customer key for this order (one customer_id per order in Olist).
         data_tests:
           - not_null
+          # Every order must have an existing customer (child -> parent).
+          # Tested in this direction only: customers is a full reference extract,
+          # orders arrive month by month, so customers without orders are expected.
+          - relationships:
+              arguments:
+                to: ref('stg_olist__customers')
+                field: customer_id
       - name: order_status
         description: Lifecycle status of the order, lowercase.
         data_tests:

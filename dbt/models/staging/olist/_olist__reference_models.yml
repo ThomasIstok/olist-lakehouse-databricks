@@ -12,10 +12,9 @@ models:
         data_tests:
           - unique
           - not_null
-          - relationships:
-              arguments:
-                to: ref('stg_olist__orders')
-                field: customer_id
+          # No relationships test to orders here on purpose: customers is loaded as a full
+          # extract while orders arrive month by month, so customers without (yet) an order
+          # are valid. Integrity is tested from the child side (orders.customer_id -> customers).
       - name: customer_unique_id
         description: Real customer (person); one person can have several customer_ids.
         data_tests:
