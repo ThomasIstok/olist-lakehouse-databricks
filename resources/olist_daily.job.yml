@@ -5,6 +5,16 @@ resources:
     olist_daily:
       name: olist_daily
 
+      # Daily run at 06:00 Prague time.
+      # Quartz cron fields: second minute hour day-of-month month day-of-week
+      # ("?" = no specific day-of-week, required by Quartz when day-of-month is "*").
+      # In the dev target, development mode pauses this schedule automatically,
+      # so it only really runs in prod.
+      schedule:
+        quartz_cron_expression: "0 0 6 * * ?"
+        timezone_id: Europe/Prague
+        pause_status: UNPAUSED
+
       # Job parameter -> passed to every notebook task as widget "catalog"
       parameters:
         - name: catalog
