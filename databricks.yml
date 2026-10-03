@@ -1,0 +1,42 @@
+# Databricks Asset Bundle = the whole deployment described as code.
+# One command (databricks bundle deploy) creates/updates the Job in a workspace,
+# so the Job is versioned in Git instead of existing only as clicks in the UI.
+bundle:
+  name: olist_lakehouse
+
+# Resource definitions live in separate files (one file per Job/pipeline)
+include:
+  - resources/*.yml
+
+# Values that differ between environments; tasks reference them as ${var.<name>}
+variables:
+  catalog:
+    description: Unity Catalog catalog = environment (olist_dev / olist_prod)
+    default: olist_dev
+  warehouse_id:
+    description: SQL warehouse used by the dbt task
+    # Lookup by name, so no environment-specific ID is hardcoded in the repo
+    lookup:
+      warehouse: "Serverless Starter Warehouse"
+
+targets:
+  # dev = your sandbox. Development mode prefixes the Job name with [dev <user>],
+  # pauses any schedule and deploys into your personal folder, so experiments
+  # never collide with production.
+  dev:
+    mode: development
+    default: true
+    workspace:
+      host: https://dbc-9e0404db-d23d.cloud.databricks.com
+    variables:
+      catalog: olist_dev
+
+  # prod = the "real" deployment. Defined now, deployed later (olist_prod does not exist yet).
+  prod:
+    mode: production
+    workspace:
+      host: https://dbc-9e0404db-d23d.cloud.databricks.com
+      # Fixed shared location instead of a personal folder
+      root_path: /Workspace/Shared/.bundle/${bundle.name}/${bundle.target}
+    variables:
+      catalog: olist_prod

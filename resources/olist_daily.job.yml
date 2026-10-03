@@ -1,0 +1,66 @@
+# The daily pipeline: replay one month -> ingest -> dbt, with FX ingest in parallel.
+# Paths are relative to THIS file (resources/), hence "../".
+resources:
+  jobs:
+    olist_daily:
+      name: olist_daily
+
+      # Job parameter -> passed to every notebook task as widget "catalog"
+      parameters:
+        - name: catalog
+          default: ${var.catalog}
+
+      # Email the deploying user when a run fails (no address hardcoded in the repo)
+      email_notifications:
+        on_failure:
+          - ${workspace.current_user.userName}
+
+      # Python environment for the dbt task: same dbt version as local = same behaviour
+      environments:
+        - environment_key: dbt_env
+          spec:
+            environment_version: "4"
+            dependencies:
+              - dbt-databricks==1.12.5
+
+      # No cluster is defined on notebook tasks -> they run on serverless compute
+      tasks:
+        # 1) Simulated source system: drop the next month into landing
+        - task_key: replay_next_month
+          notebook_task:
+            notebook_path: ../setup/03_replay_months.ipynb
+            base_parameters:
+              mode: next
+
+        # 2) FX rates from the API: independent of Olist files -> runs in parallel.
+        #    Retries: the API can be briefly unavailable.
+        - task_key: ingest_fx
+          notebook_task:
+            notebook_path: ../notebooks/02_ingest_fx.ipynb
+          max_retries: 2
+          min_retry_interval_millis: 60000
+
+        # 3) Auto Loader: must wait until the new month is in landing
+        - task_key: ingest_files
+          depends_on:
+            - task_key: replay_next_month
+          notebook_task:
+            notebook_path: ../notebooks/01_ingest_files.ipynb
+          max_retries: 1
+          min_retry_interval_millis: 60000
+
+        # 4) dbt: gold needs fresh bronze from BOTH sources.
+        #    No retries: a failed dbt run is a failed test or SQL error, retrying won't fix it.
+        - task_key: dbt_build
+          depends_on:
+            - task_key: ingest_files
+            - task_key: ingest_fx
+          environment_key: dbt_env
+          dbt_task:
+            project_directory: ../dbt
+            commands:
+              - dbt deps
+              - dbt build
+            warehouse_id: ${var.warehouse_id}
+            catalog: ${var.catalog}
+            schema: silver
