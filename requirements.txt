@@ -1,0 +1,5 @@
+# Runtime dependencies: what the project needs to run dbt against Databricks.
+# Pinned to exact versions = same behaviour on every machine (local, CI, Job).
+# Keep dbt-databricks in sync with resources/olist_daily.job.yml (dbt_env).
+dbt-core==1.12.3
+dbt-databricks==1.12.5

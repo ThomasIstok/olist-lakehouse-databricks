@@ -1,0 +1,76 @@
+# CI = automatic checks on every pull request into main.
+# Runs on a clean GitHub machine, so everything it needs is installed here.
+# No Databricks access needed: ruff and dbt parse only read the code.
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch: # allows a manual run from the Actions tab
+
+# Least privilege: the workflow only needs to read the repo
+permissions:
+  contents: read
+
+# A new push to the same PR cancels the older, now outdated run
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+
+    steps:
+      # 1) Get the code of the pull request
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # 2) Same Python as locally and in the Job (3.12)
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      # 3) Same tool versions as locally (pinned in requirements files)
+      - name: Install dependencies
+        run: pip install -r requirements-dev.txt
+
+      # 4) Python lint: bugs and bad practices in src/
+      - name: Ruff
+        run: ruff check src
+
+      # 5) dbt needs a profile even to parse. parse never connects to Databricks,
+      #    so dummy values are enough and no real secret is stored anywhere.
+      #    Written here (not committed), because profiles.yml is git-ignored on purpose.
+      - name: Create dbt CI profile
+        run: |
+          mkdir -p "$RUNNER_TEMP/dbt_profiles"
+          cat > "$RUNNER_TEMP/dbt_profiles/profiles.yml" <<'EOF'
+          olist_lakehouse:
+            target: ci
+            outputs:
+              ci:
+                type: databricks
+                host: ci-dummy.cloud.databricks.com
+                http_path: /sql/1.0/warehouses/ci-dummy
+                token: ci-dummy-not-a-secret
+                catalog: olist_dev
+                schema: silver
+                threads: 1
+          EOF
+
+      # 6) Install dbt packages (dbt_utils); dbt_packages/ is git-ignored
+      - name: dbt deps
+        working-directory: dbt
+        env:
+          DBT_PROFILES_DIR: ${{ runner.temp }}/dbt_profiles
+        run: dbt deps
+
+      # 7) Validate the whole project; any warning (e.g. YAML not matching a model) fails CI
+      - name: dbt parse (warnings as errors)
+        working-directory: dbt
+        env:
+          DBT_PROFILES_DIR: ${{ runner.temp }}/dbt_profiles
+        run: dbt parse --no-partial-parse --warn-error

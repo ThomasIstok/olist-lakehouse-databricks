@@ -12,7 +12,7 @@ Design decisions:
 from __future__ import annotations
 
 import logging
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
 
 from delta.tables import DeltaTable
 from pyspark.sql import DataFrame, SparkSession
@@ -52,10 +52,16 @@ def resolve_window(fx_cfg: dict, watermark: date | None) -> tuple[date, date] | 
     """Compute the date window to request, or None if bronze is already up to date.
 
     Start = day after watermark (incremental) or configured start_date (first run).
-    End   = configured end_date, or today for live runs.
+    End   = configured end_date, or today in UTC for live runs.
     """
     start = watermark + timedelta(days=1) if watermark else date.fromisoformat(fx_cfg["start_date"])
-    end = date.today() if fx_cfg["end_date"] == "today" else date.fromisoformat(fx_cfg["end_date"])
+    # "today" in UTC, not in the local timezone of the machine:
+    # the same code must give the same date locally (CET) and on Databricks (UTC).
+    end = (
+        datetime.now(tz=timezone.utc).date()
+        if fx_cfg["end_date"] == "today"
+        else date.fromisoformat(fx_cfg["end_date"])
+    )
     return (start, end) if start <= end else None
 
 
