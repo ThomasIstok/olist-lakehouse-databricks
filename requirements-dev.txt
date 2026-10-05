@@ -1,0 +1,4 @@
+# Development / CI dependencies: tools to check the code, not needed to run it.
+# -r = include everything from requirements.txt first, so CI gets dbt as well.
+-r requirements.txt
+ruff==0.16.10
