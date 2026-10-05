@@ -31,12 +31,16 @@ targets:
     variables:
       catalog: olist_dev
 
-  # prod = the "real" deployment. Defined now, deployed later (olist_prod does not exist yet).
+  # prod = the "real" deployment: schedule active, data in olist_prod.
   prod:
     mode: production
     workspace:
       host: https://dbc-9e0404db-d23d.cloud.databricks.com
-      # Fixed shared location instead of a personal folder
-      root_path: /Workspace/Shared/.bundle/${bundle.name}/${bundle.target}
+      # Production mode requires an explicit path, so there is exactly one prod copy.
+      # Deployer's own folder = writable only by them (not /Workspace/Shared, which any
+      # user could overwrite). The user is resolved at deploy time, so no email is
+      # hardcoded in the public repo. In a company, prod would be deployed by a
+      # service principal from CI/CD and this would point to its folder.
+      root_path: /Workspace/Users/${workspace.current_user.userName}/.bundle/${bundle.name}/${bundle.target}
     variables:
       catalog: olist_prod
