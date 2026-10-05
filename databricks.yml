@@ -18,6 +18,12 @@ variables:
     # Lookup by name, so no environment-specific ID is hardcoded in the repo
     lookup:
       warehouse: "Serverless Starter Warehouse"
+  alert_email:
+    description: >
+      Who gets an email when a run fails. Defaults to the deploying user (local dev deploys).
+      CD overrides it from a GitHub secret (BUNDLE_VAR_alert_email), so no personal email
+      is stored in this public repo.
+    default: ${workspace.current_user.userName}
 
 targets:
   # dev = your sandbox. Development mode prefixes the Job name with [dev <user>],
@@ -32,15 +38,18 @@ targets:
       catalog: olist_dev
 
   # prod = the "real" deployment: schedule active, data in olist_prod.
+  # Owned and run by the CI/CD service principal "olist-cicd" (Application ID below,
+  # not a secret), deployed only by GitHub Actions after a merge to main.
   prod:
     mode: production
     workspace:
       host: https://dbc-9e0404db-d23d.cloud.databricks.com
-      # Production mode requires an explicit path, so there is exactly one prod copy.
-      # Deployer's own folder = writable only by them (not /Workspace/Shared, which any
-      # user could overwrite). The user is resolved at deploy time, so no email is
-      # hardcoded in the public repo. In a company, prod would be deployed by a
-      # service principal from CI/CD and this would point to its folder.
-      root_path: /Workspace/Users/${workspace.current_user.userName}/.bundle/${bundle.name}/${bundle.target}
+      # Fixed path in the service principal's folder: whoever deploys, there is
+      # exactly one prod copy, and no personal user owns production code.
+      root_path: /Workspace/Users/2f828db8-ee32-47e4-b7cb-6211a30319ad/.bundle/${bundle.name}/${bundle.target}
+    # The Job runs as the service principal, not as a person:
+    # production keeps working if a person leaves or loses access.
+    run_as:
+      service_principal_name: 2f828db8-ee32-47e4-b7cb-6211a30319ad
     variables:
       catalog: olist_prod

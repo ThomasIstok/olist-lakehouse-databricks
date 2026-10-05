@@ -1,0 +1,48 @@
+# CD = automatic deployment to production after every merge to main.
+# Branch protection guarantees that main only gets code whose CI passed,
+# so whatever lands in main is deployed to prod - no manual deploy from a laptop.
+name: CD
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch: # manual re-deploy from the Actions tab if ever needed
+
+permissions:
+  contents: read
+
+# Never run two deployments at once; a newer one waits instead of cancelling
+# a deployment halfway through.
+concurrency:
+  group: cd-prod
+  cancel-in-progress: false
+
+jobs:
+  deploy-prod:
+    runs-on: ubuntu-latest
+
+    # Credentials of the service principal olist-cicd, stored encrypted in GitHub Secrets.
+    # The Databricks CLI picks them up automatically (OAuth machine-to-machine login).
+    env:
+      DATABRICKS_HOST: ${{ secrets.DATABRICKS_HOST }}
+      DATABRICKS_CLIENT_ID: ${{ secrets.DATABRICKS_CLIENT_ID }}
+      DATABRICKS_CLIENT_SECRET: ${{ secrets.DATABRICKS_CLIENT_SECRET }}
+      # Fills bundle variable alert_email, so no personal email lives in the repo
+      BUNDLE_VAR_alert_email: ${{ secrets.ALERT_EMAIL }}
+
+    steps:
+      # 1) Get the merged code from main
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # 2) Install the official Databricks CLI
+      - name: Set up Databricks CLI
+        uses: databricks/setup-cli@main
+
+      # 3) Check the bundle first: a broken config never reaches prod
+      - name: Validate bundle (prod)
+        run: databricks bundle validate -t prod
+
+      # 4) Deploy: creates/updates the prod Job and uploads code, as olist-cicd
+      - name: Deploy bundle (prod)
+        run: databricks bundle deploy -t prod

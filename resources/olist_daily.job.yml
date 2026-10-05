@@ -20,10 +20,11 @@ resources:
         - name: catalog
           default: ${var.catalog}
 
-      # Email the deploying user when a run fails (no address hardcoded in the repo)
+      # Email on failure. Address comes from variable alert_email
+      # (deploying user locally, GitHub secret in CD) - never hardcoded in the repo.
       email_notifications:
         on_failure:
-          - ${workspace.current_user.userName}
+          - ${var.alert_email}
 
       # Python environment for the dbt task: same dbt version as local = same behaviour
       environments:
