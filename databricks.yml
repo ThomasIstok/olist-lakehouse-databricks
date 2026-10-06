@@ -26,14 +26,18 @@ variables:
     default: ${workspace.current_user.userName}
 
 targets:
-  # dev = your sandbox. Development mode prefixes the Job name with [dev <user>],
-  # pauses any schedule and deploys into your personal folder, so experiments
-  # never collide with production.
+  # dev = your sandbox. Development mode prefixes the Job name with [dev <user>]
+  # and deploys into your personal folder, so experiments never collide with production.
   dev:
     mode: development
     default: true
     workspace:
       host: https://dbc-9e0404db-d23d.cloud.databricks.com
+    # Schedules are paused in dev explicitly: a dev Job must never run on its own
+    # (it would burn compute quota and replay months into olist_dev every day).
+    # Set per environment here, not in the Job file, because it differs dev vs prod.
+    presets:
+      trigger_pause_status: PAUSED
     variables:
       catalog: olist_dev
 

@@ -13,7 +13,6 @@ resources:
       schedule:
         quartz_cron_expression: "0 0 6 * * ?"
         timezone_id: Europe/Prague
-        pause_status: UNPAUSED
 
       # Job parameter -> passed to every notebook task as widget "catalog"
       parameters:
