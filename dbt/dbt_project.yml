@@ -1,39 +1,53 @@
-# dbt project: bronze -> silver (staging/intermediate) -> gold -> report-level marts
 name: olist_lakehouse
 version: "1.0.0"
 config-version: 2
-profile: olist_lakehouse   # must match the name in ~/.dbt/profiles.yml
+
+# Connection profile defined in ~/.dbt/profiles.yml (never in the repo)
+profile: olist_lakehouse
 
 model-paths: ["models"]
 macro-paths: ["macros"]
 test-paths: ["tests"]
 seed-paths: ["seeds"]
 snapshot-paths: ["snapshots"]
+
+# Folders removed by `dbt clean` (generated, never committed)
 clean-targets: ["target", "dbt_packages"]
 
-# Business parameters in one place (used by gold models)
+# Reliable analysis period: edge months (2016, 2018-09/10) are incomplete.
+# Used for is_in_analysis_period in gold and for filtering facts in marts.
 vars:
-  analysis_start_date: "2017-01-01"   # before: platform ramp-up, very few orders
-  analysis_end_date: "2018-08-31"     # after: incomplete export months
+  analysis_start_date: "2017-01-01"
+  analysis_end_date: "2018-08-31"
 
-# Where models land: folder -> schema + materialization
 models:
   olist_lakehouse:
-    staging:              # 1:1 cleaned copies of bronze tables
-      +schema: silver
-      +materialized: view # cheap: no data copy, always reflects bronze
-    intermediate:         # joins / enrichment reused by several gold models
+    # silver: views, cheap to rebuild and always in sync with bronze
+    staging:
       +schema: silver
       +materialized: view
-    gold:                 # single source of truth, queried a lot -> store as tables
+    intermediate:
+      +schema: silver
+      +materialized: view
+
+    # gold: tables, single source of truth used by every mart
+    gold:
       +schema: gold
       +materialized: table
-    marts:                # report-level marts: only SELECT / WHERE (+ aggregation in facts) on gold
+
+    # marts: one schema per report, views over gold.
+    # Read access for report consumers is granted here, in code, on every build:
+    # a new mart is readable automatically, nobody grants access by hand.
+    # Only marts get SELECT - consumers never read bronze/silver/gold directly.
+    # "account users" = all users of the account; in a company this would be
+    # a dedicated group such as "bi_readers".
+    marts:
+      +grants:
+        select: ["account users"]
       sales_overview:
         +schema: mart_sales_overview
-        +materialized: view   # no data copy - gold stays the only place where data lives
+        +materialized: view
 
-# Manually maintained reference data (CSV files in dbt/seeds)
 seeds:
   olist_lakehouse:
     +schema: silver
