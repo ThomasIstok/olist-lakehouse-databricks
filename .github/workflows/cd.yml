@@ -6,6 +6,18 @@ name: CD
 on:
   push:
     branches: [main]
+    # Deploy only when something the prod Job actually uses has changed.
+    # README, docs, tests and CI config do not change production, so they
+    # do not trigger a deployment. setup/ is included because the Job runs
+    # setup/03_replay_months; when in doubt, deploy once too often rather than never.
+    paths:
+      - "databricks.yml"
+      - "resources/**"
+      - "src/**"
+      - "notebooks/**"
+      - "setup/**"
+      - "dbt/**"
+      - ".github/workflows/cd.yml"
   workflow_dispatch: # manual re-deploy from the Actions tab if ever needed
 
 permissions:
