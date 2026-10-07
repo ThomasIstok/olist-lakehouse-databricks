@@ -1,5 +1,10 @@
-# Runtime dependencies: what the project needs to run dbt against Databricks.
+# Runtime dependencies: what the project needs to run locally and in CI.
 # Pinned to exact versions = same behaviour on every machine (local, CI, Job).
 # Keep dbt-databricks in sync with resources/olist_daily.job.yml (dbt_env).
 dbt-core==1.12.3
 dbt-databricks==1.12.5
+
+# HTTP client imported by src/ingestion/api_client.py.
+# dbt already installs it as a transitive dependency, but a package our own code
+# imports must be declared directly, otherwise a dbt upgrade could silently drop it.
+requests==2.34.2
