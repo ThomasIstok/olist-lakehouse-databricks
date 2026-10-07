@@ -2,3 +2,14 @@
 # -r = include everything from requirements.txt first, so CI gets dbt as well.
 -r requirements.txt
 ruff==0.16.10
+
+# Unit tests for src/
+pytest==9.1.1
+
+# Needed only so tests can IMPORT src/ingestion/frankfurter.py, which imports
+# pyspark and delta at module level. No Spark session is started in unit tests.
+# On Databricks both libraries are provided by the runtime, so they are dev-only here.
+# Spark 4.0 line = serverless environment_version "4" (resources/olist_daily.job.yml);
+# delta-spark must stay on the matching 4.0 line.
+pyspark==4.0.4
+delta-spark==4.0.1
