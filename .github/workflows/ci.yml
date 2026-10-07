@@ -1,6 +1,6 @@
 # CI = automatic checks on every pull request into main.
 # Runs on a clean GitHub machine, so everything it needs is installed here.
-# No Databricks access needed: ruff and dbt parse only read the code.
+# No Databricks access needed: ruff, pytest and dbt parse only read the code.
 name: CI
 
 on:
@@ -26,22 +26,31 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      # 2) Same Python as locally and in the Job (3.12)
+      # 2) Same Python as locally and in the Job (3.12).
+      #    cache: pip keeps downloaded packages between runs (pyspark alone is ~400 MB).
+      #    cache-dependency-path: rebuild the cache when ANY requirements file changes,
+      #    not only requirements.txt (the default).
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
           cache: pip
+          cache-dependency-path: requirements*.txt
 
       # 3) Same tool versions as locally (pinned in requirements files)
       - name: Install dependencies
         run: pip install -r requirements-dev.txt
 
-      # 4) Python lint: bugs and bad practices in src/
+      # 4) Python lint: bugs and bad practices in src/ and tests/
       - name: Ruff
-        run: ruff check src
+        run: ruff check src tests
 
-      # 5) dbt needs a profile even to parse. parse never connects to Databricks,
+      # 5) Unit tests for src/ (settings in pytest.ini).
+      #    No Spark session and no network: HTTP calls and sleeps are mocked.
+      - name: Pytest
+        run: pytest
+
+      # 6) dbt needs a profile even to parse. parse never connects to Databricks,
       #    so dummy values are enough and no real secret is stored anywhere.
       #    Written here (not committed), because profiles.yml is git-ignored on purpose.
       - name: Create dbt CI profile
@@ -61,14 +70,14 @@ jobs:
                 threads: 1
           EOF
 
-      # 6) Install dbt packages (dbt_utils); dbt_packages/ is git-ignored
+      # 7) Install dbt packages (dbt_utils); dbt_packages/ is git-ignored
       - name: dbt deps
         working-directory: dbt
         env:
           DBT_PROFILES_DIR: ${{ runner.temp }}/dbt_profiles
         run: dbt deps
 
-      # 7) Validate the whole project; any warning (e.g. YAML not matching a model) fails CI
+      # 8) Validate the whole project; any warning (e.g. YAML not matching a model) fails CI
       - name: dbt parse (warnings as errors)
         working-directory: dbt
         env:
