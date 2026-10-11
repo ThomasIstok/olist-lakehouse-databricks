@@ -104,7 +104,8 @@ olist-lakehouse-databricks/
 │   ├── ci.yml                  # Kontroly u každého pull requestu
 │   └── cd.yml                  # Nasazení do prod po merge do main
 ├── requirements.txt            # Závislosti pro běh (dbt)
-├── requirements-dev.txt        # Nástroje pro vývoj a CI (ruff)
+├── requirements-dev.txt        # Nástroje pro vývoj a CI (ruff, pytest; pyspark jen pro importy v testech)
+├── pytest.ini                  # Nastavení pytestu
 ├── setup/                      # Jednorázová příprava prostředí (pro každý katalog)
 │   ├── 00_unity_catalog        # Katalog, schémata vrstev, volumes
 │   ├── 01_download_olist       # Stažení datasetu do landing
@@ -123,9 +124,9 @@ olist-lakehouse-databricks/
 │   ├── models/intermediate/    # silver: znovupoužitelné technické mezikroky
 │   ├── models/gold/            # gold: dimenze a fakta, veškerá logika
 │   ├── models/marts/           # marty: jedno schéma na report
-│   ├── macros/                 # Sdílená logika (pravidlo tržeb, vzdálenost, názvy schémat)
+│   ├── macros/                 # Sdílená logika (pravidlo tržeb, vzdálenost, názvy schémat, úklid PR)
 │   └── seeds/                  # Malé referenční mapování (skupiny kategorií)
-├── tests/                      # Testy Pythonu (plánované)
+├── tests/                      # Unit testy pro src/ (pytest)
 └── docs/                       # Diagramy a dokumentace
 ```
 
@@ -290,6 +291,8 @@ erDiagram
 - **Rekonciliační test** (warn): platby za objednávku vs. hodnota položek + doprava, tolerance 1 BRL.
 - **Freshness zdrojů** u transakčních tabulek a kurzů (varování po 2 dnech, chyba po 7).
 - **Varování jsou v CI chyby**: položka v YAML, která nesedí na žádný model, shodí pull request. Netestovaný model tak nikdy neprojde potichu.
+- **Každý pull request se postaví v Databricks**: všechny modely a testy proběhnou v izolovaných schématech daného PR ještě před merge (viz CI/CD).
+- **Unit testy v Pythonu (pytest, 24 testů)** pro `src/`: okno dat pro kurzy, zploštění JSON a pravidla HTTP klienta (opakování, backoff, okamžité selhání). Volání HTTP i čekání jsou mockovaná, Spark session není potřeba.
 
 ---
 
@@ -317,17 +320,21 @@ Celý Job je definovaný v [`databricks.yml`](databricks.yml) a [`resources/olis
 ```mermaid
 flowchart LR
     BR[feature větev] --> PR[pull request]
-    PR --> CI{CI: ruff +<br/>dbt parse}
-    CI -- zelené --> MG[merge do main]
+    PR --> CI{checks: ruff +<br/>pytest + dbt parse}
+    CI -- zelené --> DB{dbt_build_pr: dbt build<br/>ve schématech ci_pr_*}
     CI -- červené --> BR
+    DB -- zelené --> MG[merge do main]
+    DB -- červené --> BR
     MG --> CD[CD: bundle validate<br/>+ deploy -t prod]
     CD --> PROD[(prod Job<br/>běží jako olist-cicd)]
 ```
 
-- **CI** ([`ci.yml`](.github/workflows/ci.yml)) u každého pull requestu: nainstaluje zafixované závislosti, pustí `ruff` na `src/` a `dbt parse --warn-error`. Nepotřebuje přístup do Databricks, je tedy rychlé a zdarma.
-- **Ochrana větve** (GitHub ruleset na `main`): změny jen přes pull request, merge jen se zeleným CI, zákaz smazání a force push.
+- **CI** ([`ci.yml`](.github/workflows/ci.yml)) u každého pull requestu, dva joby:
+  - `checks` (asi minuta, bez přístupu do Databricks): `ruff` na `src/` a `tests/`, `pytest`, `dbt parse --warn-error`.
+  - `dbt_build_pr` (spustí se, až projde `checks`): přihlásí se jako service principal a pustí `dbt build` celého projektu v `olist_dev`, ve vlastních schématech (`ci_pr<PR>_run<běh>_silver`, `_gold`, ...), která čtou z `olist_dev.bronze`. Na konci se schémata vždy smažou, i po chybě. Build tak nikdy nepřepíše cizí pracovní tabulky a dva pull requesty se nepoperou.
+- **Ochrana větve** (GitHub ruleset na `main`): změny jen přes pull request, merge jen když jsou zelené `checks` i `dbt_build_pr`, zákaz smazání a force push.
 - **CD** ([`cd.yml`](.github/workflows/cd.yml)) po každém merge do `main`: zvaliduje a nasadí bundle do prod, přihlášené jako service principal.
-- **Secrets** (`DATABRICKS_HOST`, `DATABRICKS_CLIENT_ID`, `DATABRICKS_CLIENT_SECRET`, `ALERT_EMAIL`) jsou jen v GitHub Secrets. OAuth secret má omezenou platnost a musí se pravidelně obnovovat.
+- **Secrets** (`DATABRICKS_HOST`, `DATABRICKS_CLIENT_ID`, `DATABRICKS_CLIENT_SECRET`, `ALERT_EMAIL`) jsou jen v GitHub Secrets. OAuth secret má omezenou platnost a musí se pravidelně obnovovat. HTTP path warehouse je obyčejná GitHub proměnná (`DATABRICKS_HTTP_PATH`), není tajná.
 
 ---
 
@@ -353,7 +360,7 @@ flowchart LR
 | Replay simuluje zdroj, Job běží podle času | Reálný zdroj + **file arrival trigger**: běh, když soubory opravdu dorazí |
 | Gold se přestavuje celý | Inkrementální modely (`merge` na byznys klíčích) pro velká fakta |
 | Žádná historie změn atributů | SCD2 snapshoty pro dimenze jako produkty nebo prodejci |
-| CI jen parsuje dbt | CI v2: `dbt build` změněných modelů do izolovaného CI schématu |
+| Každý pull request staví celý dbt projekt (10–20 min, bere denní kvótu) | Slim CI: stavět jen změněné modely a to, co z nich vzniká (`state:modified+`) |
 | Bronze zapisují notebooky | Lakeflow Declarative Pipelines s expectations pro ingest |
 
 ---
@@ -364,7 +371,7 @@ flowchart LR
 
 1. **Příprava prostředí**: spusť notebooky ve `setup/` s widgetem `catalog = olist_dev` (nebo `olist_prod`):
    `00_unity_catalog` -> `01_download_olist` -> `02_prepare_replay_source` -> `03_replay_months` (`mode=range`, např. 2016-09 až 2017-12).
-2. **Lokální dbt**: vytvoř venv, `pip install -r requirements-dev.txt`, nastav `DBT_DATABRICKS_HOST`, `DBT_DATABRICKS_HTTP_PATH`, `DBT_DATABRICKS_TOKEN` (viz `.env.example`) a `~/.dbt/profiles.yml`, který je čte. Pak `cd dbt && dbt deps && dbt build`.
+2. **Lokální dbt a testy**: vytvoř venv, `pip install -r requirements-dev.txt`, z kořene repa spusť `pytest`, nastav `DBT_DATABRICKS_HOST`, `DBT_DATABRICKS_HTTP_PATH`, `DBT_DATABRICKS_TOKEN` (viz `.env.example`) a `~/.dbt/profiles.yml`, který je čte. Pak `cd dbt && dbt deps && dbt build`.
 3. **Nasazení Jobu do dev**
    ```bash
    databricks auth login --host <url-workspace>
@@ -376,7 +383,13 @@ flowchart LR
 
 ---
 
+## Další kroky
 
+- [x] Unit testy pro `src/` v CI (pytest)
+- [x] `dbt build` každého pull requestu v izolovaných schématech
+- [x] ERD martu sales overview
+- [ ] Druhý mart: `mart_delivery_performance`
+- [ ] Slim CI: stavět jen změněné modely
 
 ---
 

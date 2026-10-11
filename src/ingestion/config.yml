@@ -22,10 +22,9 @@ tables:
   - order_reviews
   - products
   - sellers
-
   - category_translation
 
-  # REST API source: daily FX rates from Frankfurter (European Central Bank data)
+# REST API source: daily FX rates from Frankfurter (European Central Bank data)
 fx:
   base_url: https://api.frankfurter.app
   base_currency: BRL                  # Olist prices are in Brazilian real
