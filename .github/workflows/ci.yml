@@ -1,6 +1,10 @@
 # CI = automatic checks on every pull request into main.
-# Runs on a clean GitHub machine, so everything it needs is installed here.
-# No Databricks access needed: ruff, pytest and dbt parse only read the code.
+#
+# Job "checks": quick checks on a clean GitHub machine, no Databricks access:
+#   ruff, pytest and dbt parse only read the code.
+# Job "dbt_build_pr": builds the whole dbt project in Databricks (catalog olist_dev)
+#   into schemas of its own (ci_pr<PR>_run<run>_*), runs all dbt tests,
+#   then always drops those schemas again.
 name: CI
 
 on:
@@ -83,3 +87,59 @@ jobs:
         env:
           DBT_PROFILES_DIR: ${{ runner.temp }}/dbt_profiles
         run: dbt parse --no-partial-parse --warn-error
+
+  dbt_build_pr:
+    # Only for pull requests: the schema name needs the PR number
+    if: github.event_name == 'pull_request'
+    # Start only after the quick checks passed - saves Free Edition compute quota
+    needs: checks
+    runs-on: ubuntu-latest
+    # The serverless warehouse can need 10+ minutes to start on Free Edition
+    timeout-minutes: 45
+
+    # Connection details, read by profiles.yml below via env_var().
+    # DBT_ENV_SECRET_ prefix = dbt hides the value in its logs (GitHub masks it too).
+    env:
+      DBT_DATABRICKS_HOST: ${{ secrets.DATABRICKS_HOST }}
+      DBT_DATABRICKS_HTTP_PATH: ${{ vars.DATABRICKS_HTTP_PATH }}
+      DBT_DATABRICKS_CLIENT_ID: ${{ secrets.DATABRICKS_CLIENT_ID }}
+      DBT_ENV_SECRET_DATABRICKS_CLIENT_SECRET: ${{ secrets.DATABRICKS_CLIENT_SECRET }}
+      # Unique per run: a cancelled older run cleans up only its own schemas
+      PR_SCHEMA: ci_pr${{ github.event.pull_request.number }}_run${{ github.run_number }}
+
+    steps:
+      # 1) Get the code of the pull request
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # 2) Same Python as everywhere else (3.12), same pip cache as job "checks"
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements*.txt
+
+      # 3) Only runtime dependencies: dbt is all this job needs (no ruff, pytest, pyspark)
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      # 4) Real connection profile, target "pr" -> generate_schema_name adds the prefix.
+      #    Values come from environment variables, so no secret is ever written to a file.
+      - name: Create dbt PR profile
+        run: |
+          mkdir -p "$RUNNER_TEMP/dbt_profiles"
+          cat > "$RUNNER_TEMP/dbt_profiles/profiles.yml" <<'EOF'
+          olist_lakehouse:
+            target: pr
+            outputs:
+              pr:
+                type: databricks
+                host: "{{ env_var('DBT_DATABRICKS_HOST') | replace('https://', '') }}"
+                http_path: "{{ env_var('DBT_DATABRICKS_HTTP_PATH') }}"
+                auth_type: oauth
+                client_id: "{{ env_var('DBT_DATABRICKS_CLIENT_ID') }}"
+                client_secret: "{{ env_var('DBT_ENV_SECRET_DATABRICKS_CLIENT_SECRET') }}"
+                catalog: olist_dev
+                schema: "{{ env_var('PR_SCHEMA') }}"
+                threads: 4
