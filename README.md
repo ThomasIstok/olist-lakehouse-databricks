@@ -104,7 +104,8 @@ olist-lakehouse-databricks/
 │   ├── ci.yml                  # Checks on every pull request
 │   └── cd.yml                  # Deploy to prod after merge to main
 ├── requirements.txt            # Runtime dependencies (dbt)
-├── requirements-dev.txt        # Dev/CI tools (ruff)
+├── requirements-dev.txt        # Dev/CI tools (ruff, pytest; pyspark only for test imports)
+├── pytest.ini                  # pytest settings
 ├── setup/                      # One-time environment setup (run per catalog)
 │   ├── 00_unity_catalog        # Catalog, layer schemas, volumes
 │   ├── 01_download_olist       # Download dataset into landing
@@ -123,9 +124,9 @@ olist-lakehouse-databricks/
 │   ├── models/intermediate/    # silver: reusable technical steps
 │   ├── models/gold/            # gold: dimensions and facts, all logic
 │   ├── models/marts/           # marts: one schema per report
-│   ├── macros/                 # Shared logic (revenue rule, distance, schema names)
+│   ├── macros/                 # Shared logic (revenue rule, distance, schema names, PR cleanup)
 │   └── seeds/                  # Small reference mappings (category groups)
-├── tests/                      # Python tests (planned)
+├── tests/                      # pytest unit tests for src/
 └── docs/                       # Diagrams and documentation
 ```
 
@@ -289,6 +290,8 @@ erDiagram
 - **Reconciliation test** (warn): payments per order vs. item value + freight, tolerance 1 BRL.
 - **Source freshness** on transactional and FX sources (warn after 2 days, error after 7).
 - **Warnings are errors in CI**: a YAML entry that does not match a model fails the pull request - an untested model can never slip through silently.
+- **Every pull request is built in Databricks**: all models and tests run in isolated per-PR schemas before merge (see CI/CD).
+- **Python unit tests (pytest, 24 tests)** for `src/`: FX date window, JSON flattening and the HTTP client's retries, backoff and fail-fast rules. HTTP calls and sleeps are mocked, no Spark session needed.
 
 ---
 
@@ -316,17 +319,21 @@ The whole Job is defined in [`databricks.yml`](databricks.yml) and [`resources/o
 ```mermaid
 flowchart LR
     BR[feature branch] --> PR[pull request]
-    PR --> CI{CI: ruff +<br/>dbt parse}
-    CI -- green --> MG[merge to main]
+    PR --> CI{checks: ruff +<br/>pytest + dbt parse}
+    CI -- green --> DB{dbt_build_pr: dbt build<br/>in ci_pr_* schemas}
     CI -- red --> BR
+    DB -- green --> MG[merge to main]
+    DB -- red --> BR
     MG --> CD[CD: bundle validate<br/>+ deploy -t prod]
     CD --> PROD[(prod Job<br/>runs as olist-cicd)]
 ```
 
-- **CI** ([`ci.yml`](.github/workflows/ci.yml)) on every pull request: installs pinned dependencies, runs `ruff` on `src/` and `dbt parse --warn-error`. No Databricks access is needed, so it is fast and free.
-- **Branch protection** (GitHub ruleset on `main`): changes only through pull requests, merge only with green CI, no deletion and no force push.
+- **CI** ([`ci.yml`](.github/workflows/ci.yml)) on every pull request, two jobs:
+  - `checks` (about a minute, no Databricks access): `ruff` on `src/` and `tests/`, `pytest`, `dbt parse --warn-error`.
+  - `dbt_build_pr` (runs only after `checks` passed): logs in as the service principal and runs `dbt build` of the whole project in `olist_dev`, in schemas of its own (`ci_pr<PR>_run<run>_silver`, `_gold`, ...) that read from `olist_dev.bronze`. The schemas are always dropped at the end, also after a failure. A build never touches anyone's working tables, and two pull requests never collide.
+- **Branch protection** (GitHub ruleset on `main`): changes only through pull requests, merge only when both `checks` and `dbt_build_pr` are green, no deletion and no force push.
 - **CD** ([`cd.yml`](.github/workflows/cd.yml)) after every merge to `main`: validates and deploys the bundle to prod, authenticated as the service principal.
-- **Secrets** (`DATABRICKS_HOST`, `DATABRICKS_CLIENT_ID`, `DATABRICKS_CLIENT_SECRET`, `ALERT_EMAIL`) live only in GitHub Secrets. The OAuth secret has a limited lifetime and must be rotated.
+- **Secrets** (`DATABRICKS_HOST`, `DATABRICKS_CLIENT_ID`, `DATABRICKS_CLIENT_SECRET`, `ALERT_EMAIL`) live only in GitHub Secrets. The OAuth secret has a limited lifetime and must be rotated. The warehouse HTTP path is a plain GitHub variable (`DATABRICKS_HTTP_PATH`): it is not a secret.
 
 ---
 
@@ -352,7 +359,7 @@ flowchart LR
 | Replay simulates the source, Job runs on a time schedule | Real source + **file arrival trigger**: run when files actually land |
 | Full table rebuilds in gold | Incremental models (`merge` on business keys) for large facts |
 | No history of attribute changes | SCD2 snapshots for dimensions such as products or sellers |
-| CI only parses dbt | CI v2: `dbt build` of changed models into an isolated CI schema |
+| Every pull request builds the whole dbt project (10-20 min, uses the daily quota) | Slim CI: build only modified models and their children (`state:modified+`) |
 | Bronze written by notebooks | Lakeflow Declarative Pipelines with expectations for ingestion |
 
 ---
@@ -363,7 +370,7 @@ flowchart LR
 
 1. **Set up an environment** - run the notebooks in `setup/` with widget `catalog = olist_dev` (or `olist_prod`):
    `00_unity_catalog` -> `01_download_olist` -> `02_prepare_replay_source` -> `03_replay_months` (`mode=range`, e.g. 2016-09 to 2017-12).
-2. **Local dbt** - create a venv, `pip install -r requirements-dev.txt`, set `DBT_DATABRICKS_HOST`, `DBT_DATABRICKS_HTTP_PATH`, `DBT_DATABRICKS_TOKEN` (see `.env.example`) and a `~/.dbt/profiles.yml` that reads them, then `cd dbt && dbt deps && dbt build`.
+2. **Local dbt and tests** - create a venv, `pip install -r requirements-dev.txt`, run `pytest` from the repo root, set `DBT_DATABRICKS_HOST`, `DBT_DATABRICKS_HTTP_PATH`, `DBT_DATABRICKS_TOKEN` (see `.env.example`) and a `~/.dbt/profiles.yml` that reads them, then `cd dbt && dbt deps && dbt build`.
 3. **Deploy the Job to dev**
    ```bash
    databricks auth login --host <workspace-url>
@@ -375,7 +382,13 @@ flowchart LR
 
 ---
 
+## Roadmap
 
+- [x] Unit tests for `src/` in CI (pytest)
+- [x] `dbt build` of every pull request in isolated schemas
+- [x] ERD of the sales overview mart
+- [ ] Second mart: `mart_delivery_performance`
+- [ ] Slim CI: build only modified models
 
 ---
 
