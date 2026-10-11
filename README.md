@@ -191,8 +191,6 @@ flowchart LR
 
 ## Marts
 
-
-
 ### mart_sales_overview
 Answers: *How much do we sell, where, what, and how do customers pay? How do the numbers look in EUR and CZK?*
 
@@ -208,8 +206,6 @@ Answers: *How much do we sell, where, what, and how do customers pay? How do the
 | `dim_product` | one product | display name, category, category group |
 
 Facts are filtered to the analysis period (2017-01 to 2018-08); the calendar is complete for time intelligence in BI.
-
-## Marts
 
 #### Data model (ERD)
 
@@ -285,9 +281,6 @@ erDiagram
         decimal brl_to_czk
     }
 ```
-
-### mart_sales_overview
-Answers: *How much do we sell, where, what, and how do customers pay? How do the numbers look in EUR and CZK?*
 
 ## Data quality
 
