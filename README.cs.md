@@ -207,6 +207,82 @@ Odpovídá na otázky: *Kolik prodáváme, kde, co a jak zákazníci platí? Jak
 
 Fakta jsou filtrovaná na analytické období (2017-01 až 2018-08). Kalendář je úplný kvůli časové inteligenci v BI.
 
+#### Datový model (ERD)
+
+Hvězdicové schéma: každá faktová tabulka se na své dimenze napojuje vztahem mnoho ku jedné.
+Fakta se mezi sebou nikdy nejoinují (přerušované čáry): `order_id` je spojuje jen logicky,
+protože join položek na platby by znásobil řádky (fan-out).
+
+```mermaid
+erDiagram
+    dim_calendar ||--o{ fct_sales_order : "order_date"
+    dim_calendar ||--o{ fct_order_item : "order_date"
+    dim_calendar ||--o{ fct_payment : "order_date"
+    dim_calendar ||--o| fct_fx_rate : "calendar_date"
+    dim_customer ||--o{ fct_sales_order : "customer_id"
+    dim_customer ||--o{ fct_order_item : "customer_id"
+    dim_customer ||--o{ fct_payment : "customer_id"
+    dim_product ||--o{ fct_order_item : "product_id"
+    dim_seller ||--o{ fct_order_item : "seller_id"
+    fct_sales_order ||..o{ fct_order_item : "order_id (logical only)"
+    fct_sales_order ||..o{ fct_payment : "order_id (logical only)"
+
+    dim_calendar {
+        date calendar_date PK
+        int year
+        string year_month
+        boolean is_in_analysis_period
+    }
+    dim_customer {
+        string customer_id PK "one person"
+        string last_delivery_state
+        boolean is_repeat_customer
+    }
+    dim_product {
+        string product_id PK
+        string category_label
+        string category_group
+    }
+    dim_seller {
+        string seller_id PK
+        string state
+        double latitude
+        double longitude
+    }
+    fct_sales_order {
+        string order_id PK "grain: one order"
+        string customer_id FK
+        date order_date FK
+        decimal order_value_brl
+        decimal delivery_days
+        boolean is_late
+    }
+    fct_order_item {
+        string order_item_key PK "grain: one unit sold"
+        string order_id
+        string product_id FK
+        string seller_id FK
+        string customer_id FK
+        date order_date FK
+        decimal item_price_brl
+        decimal freight_price_brl
+    }
+    fct_payment {
+        string order_id PK "grain: one payment"
+        int payment_sequence PK
+        string customer_id FK
+        date order_date FK
+        string payment_method
+        decimal payment_amount_brl
+    }
+    fct_fx_rate {
+        date calendar_date PK "grain: one day"
+        decimal brl_to_eur
+        decimal brl_to_czk
+    }
+```
+
+
 ## Kvalita dat
 
 - **dbt testy (133)**: `unique`, `not_null`, `relationships`, `accepted_values`, rozsahové a výrazové testy z `dbt_utils` na všech vrstvách.
